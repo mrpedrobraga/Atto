@@ -1,5 +1,5 @@
 //@ts-check
-import { MutableStateList, el, renderAttoCompoment, state, stateList, stateListen, stateMap, stateSet } from "./atto.js"
+import { MutableStateList, el, MutableState, renderAttoCompoment, state, stateList, stateListen, stateMap, stateSet } from "./atto.js"
 
 const FlexColumn = (...args) => {
     return el('div',
@@ -33,42 +33,48 @@ const FlexRow = (...args) => {
     )
 }
 
-const TodoEditor = () => {
-    /** @type {MutableStateList<string>} */
-    const todosState = stateList(["Wash dishes", "Take out trash."]);
-    const upp = todosState.fmap((_, i) => {
-        return i.toUpperCase();
-    });
-    todosState.push("New element.");
-
-    const todoContentEditor = el('input', {
+const SingleTodoEditor = (todoState) => {
+    const input = el('input', {
         type: 'text',
-        placeholder: 'Todo content.',
-        style: 'flex-grow: 1;'
+        value: todoState,
+        style: "flex-grow: 1"
     });
+
+    const button = el('input', {
+        type: 'button',
+        value: 'Save',
+        onclick: () =>
+            todoState.set(input.element['value'])
+    });
+
+    return FlexRow(
+        input,
+        button
+    );
+};
+
+const TodoEditor = () => {
+    /** @type {MutableStateList<MutableState<string>>} */
+    const todosState = stateList([]);
+
     const todoAddBtn = el('input', {
         type: 'button',
         value: 'Add',
         onclick: () => {
-            let value = todoContentEditor.element['value'];
-
-            if (value) {
-                todoContentEditor.element['value'] = '';
-                todosState.push(value);
-            }
+            todosState.push(state("New Todo"))
         }
     });
 
-    const todoEditor = FlexRow(todoContentEditor, todoAddBtn);
-
     const todoView = FlexColumn(
         todosState.fmap((_, todo) =>
-            el('input', { type: 'text', placeholder: todo })
+            SingleTodoEditor(todo)
         )
     );
 
+
     return FlexColumn(
-        todoEditor,
+        todoAddBtn,
+        todosState.fmap((_, todo) => el('p', todo)),
         todoView
     );
 }

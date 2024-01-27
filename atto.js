@@ -92,7 +92,10 @@ function appendAttoElement(element, arg) {
         Object.keys(attribList).forEach((key) => {
             const val = attribList[key];
             if (val instanceof MutableState) {
-                // Handle signal updates!
+                const state = val;
+                const updateAttr = (_, newValue) => { element[key] = newValue; }
+                stateListen(state, updateAttr);
+                updateAttr(undefined, state.value);
             } else {
                 element[key] = val;
             }
