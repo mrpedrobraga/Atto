@@ -9,7 +9,7 @@ export class AttoComponent {
 
 /**
  * Represents all the attributes for all the native dol element types.
- * @typedef {{ [string]: any } }} _AttoAttrList
+ * @typedef {Record<String, any>} }} _AttoAttrList
  */
 
 /**
@@ -44,27 +44,47 @@ export function el(tag_name, ...args) {
     atto_component.element = element;
 
     args.forEach((arg) => {
-        populateElement(element, arg);
+        appendAttoElement(element, arg);
     });
 
     return atto_component;
 }
 
-function populateElement(element, arg) {
-    if (typeof arg === 'string') {
+function appendAttoElement(element, arg) {
+    if (Array.isArray(arg)) {
+        arg.map((argItem) => appendAttoElement(element, argItem))
+    } else if (typeof arg === 'string') {
         element.appendChild(document.createTextNode(arg));
+    } else if (arg instanceof MutableStateList) {
+        const state = arg;
+        const innerContainer = makeInnerContainer();
+        element.appendChild(innerContainer);
+        stateListen(state, (_, [diffOp, diffContent]) => {
+            switch (diffOp) {
+                case 'push':
+                    appendAttoElement(innerContainer, diffContent);
+                    break;
+            }
+        });
+        state.value.map((v) => {
+            appendAttoElement(innerContainer, v);
+        });
     } else if (arg instanceof MutableState) {
         const state = arg;
         const innerContainer = makeInnerContainer();
         element.appendChild(innerContainer);
         const updateInnerContainer = (_, new_value) => {
             innerContainer.innerHTML = "";
-            populateElement(innerContainer, new_value);
+            appendAttoElement(innerContainer, new_value);
         }
         stateListen(state, updateInnerContainer);
         updateInnerContainer(undefined, state.value);
+
     } else if (arg instanceof AttoComponent) {
         element.appendChild(arg.element);
+    } else if (arg == null || arg == undefined) {
+        console.log("why is this undefined wtf")
+        console.trace("undeifned");
     } else {
         // Set attribute.
         const attribList = arg;
@@ -95,7 +115,8 @@ export function renderAttoCompoment(container, factory) {
 
 /**
  * @template T
- * @typedef {(oldValue: T, newValue: T) => void} StateCallback
+ * @template U
+ * @typedef {(oldValue: T, newValue: T) => U} StateCallback
  */
 
 /**
@@ -121,12 +142,61 @@ export class MutableState {
     }
 
     /**
-     * 
-     * @param {StateCallback<T>} callback 
-     * @returns 
+     * @template U
+     * @param {StateCallback<T, U>} callback 
+     * @returns {MutableState<U>}
      */
     map(callback) {
         return stateMap(this, callback)
+    }
+
+    /**
+     * 
+     * @param {T} newValue 
+     */
+    set(newValue) {
+        stateSet(this, newValue)
+    }
+}
+
+/**
+ * @typedef {'push'} MutableStateListOperation
+ */
+
+/**
+ * @template T
+ * @extends {MutableState<T[]>}
+ */
+export class MutableStateList extends MutableState {
+    /**
+     * @type [MutableState, StateCallback<any>][]
+     */
+    derived
+
+    constructor(initialValue) {
+        super(initialValue);
+        this.derived = [];
+    }
+
+    /**
+     * @template U
+     * @param {StateCallback<T, U>} callback 
+     * @returns {MutableStateList<U>}
+     */
+    fmap(callback) {
+        return stateListFlatMap(this, callback)
+    }
+
+    /**
+     * 
+     * @param {T} newValue 
+     */
+    push(newValue) {
+        this.value.push(newValue);
+        for (const [derState, derCallback] of this.derived) {
+            derState.push(derCallback(undefined, newValue));
+        }
+        stateNotify(this, undefined, ['push', newValue]);
     }
 }
 
@@ -138,6 +208,15 @@ export class MutableState {
 export function stateSet(state, newValue) {
     let oldValue = state.value;
     state.value = newValue;
+    stateNotify(state, oldValue, newValue);
+}
+
+/**
+ * @template T
+ * @param {MutableState<T>} state 
+ * @param {T} newValue 
+ */
+export function stateNotify(state, oldValue, newValue) {
     state.callbacks.forEach(
         (callback) =>
             callback(oldValue, newValue)
@@ -156,13 +235,29 @@ export function stateListen(state, callback) {
 
 /**
  * @template T
+ * @template U
  * @param {MutableState<T>} state
- * @param {StateCallback<T>} callback
- * @returns State<T>
+ * @param {StateCallback<T, U>} callback
+ * @returns {MutableState<U>}
  */
 export function stateMap(state, callback) {
     const s = new MutableState(callback(state.value, state.value));
     state.callbacks.push((o, v) => stateSet(s, callback(o, v)));
+    return s;
+}
+
+/**
+ * @template T
+ * @template U
+ * @param {MutableState<T>} state
+ * @param {StateCallback<T, U>} callback
+ * @returns {MutableStateList<U>}
+ */
+export function stateListFlatMap(state, callback) {
+    const s = new MutableStateList(state.value.map(i => callback(i, i)));
+    //state.callbacks.push((o, v) => stateSet(s, callback(o, v)));
+
+    state.derived.push([s, callback]);
     return s;
 }
 
@@ -193,4 +288,13 @@ export function stateZip(states, derive) {
  */
 export function state(initialValue) {
     return new MutableState(initialValue);
+}
+
+/**
+ * @template T
+ * @param {T[]} initialValue
+ * @returns {MutableStateList<T>}
+ */
+export function stateList(initialItems = []) {
+    return new MutableStateList([...initialItems]);
 }
